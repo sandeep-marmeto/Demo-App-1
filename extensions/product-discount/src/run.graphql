@@ -3,6 +3,18 @@ query RunInput {
     lines {
       id
       quantity
+      merchandise {
+        ... on ProductVariant {
+          id
+          product {
+            id
+            handle
+            metafield (namespace: "volume-discount", key:"quantity-based") {
+              jsonValue
+            }
+          }
+        }
+      }
     }
   }
 }

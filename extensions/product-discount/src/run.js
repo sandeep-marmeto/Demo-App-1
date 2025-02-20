@@ -16,41 +16,50 @@ const EMPTY_DISCOUNT = {
   discountApplicationStrategy: DiscountApplicationStrategy.First,
   discounts: [],
 };
+
 /**
  * @param {RunInput} input
  * @returns {FunctionRunResult}
  */
 export function run(input) {
-  const targets = input.cart.lines
-    // Only include cart lines with a quantity of two or more
-    .filter((line) => line.quantity >= 2)
-    .map((line) => {
-      return /** @type {Target} */ ({
-        // Use the cart line ID to create a discount target
-        cartLine: {
-          id: line.id,
-        },
-      });
-    });
-  if (!targets.length) {
-    // You can use STDERR for debug logs in your function
+  // Filter cart lines where the product has a metafield and fullfilled the min quantity
+  const eligibleLines = input.cart.lines.filter(
+    (line) => line.merchandise.product.metafield != null
+  ).filter((line) => line.quantity >= line.merchandise.product.metafield.jsonValue.quantity);
+
+  if (!eligibleLines.length) {
     console.error("No cart lines qualify for volume discount.");
     return EMPTY_DISCOUNT;
   }
 
-  return {
-    discounts: [
-      {
-        // Apply the discount to the collected targets
-        targets,
-        // Define a percentage-based discount
-        value: {
-          percentage: {
-            value: "10.0",
+  // Generate discount objects
+  const discounts = eligibleLines.map((line) => {
+    const discountValue = line.merchandise.product.metafield.jsonValue?.discount;
+    
+    if (!discountValue || isNaN(discountValue)) {
+      console.warn(`Invalid discount value for product ${line.merchandise.product.id}`);
+      return null; // Skip invalid entries
+    }
+
+    return {
+      targets: [
+        {
+          cartLine: {
+            id: line.id,
           },
         },
+      ],
+      value: {
+        percentage: {
+          value: discountValue.toString(), // Ensure it's a string
+        },
       },
-    ],
-    discountApplicationStrategy: DiscountApplicationStrategy.First,
+      message: line.merchandise.product.metafield.jsonValue?.message
+    };
+  }).filter(Boolean); // Remove null values
+
+  return {
+    discounts,
+    discountApplicationStrategy: DiscountApplicationStrategy.All,
   };
 }
