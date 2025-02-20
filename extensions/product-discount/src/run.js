@@ -24,7 +24,7 @@ const EMPTY_DISCOUNT = {
 export function run(input) {
   // Filter cart lines where the product has a metafield and fullfilled the min quantity
   const eligibleLines = input.cart.lines.filter(
-    (line) => line.merchandise.product.metafield != null
+    (line) => line.merchandise.product.hasAnyTag != false && line.merchandise.product.metafield != null
   ).filter((line) => line.quantity >= line.merchandise.product.metafield.jsonValue.quantity);
 
   if (!eligibleLines.length) {

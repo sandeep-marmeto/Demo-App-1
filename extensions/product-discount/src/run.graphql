@@ -9,6 +9,7 @@ query RunInput {
           product {
             id
             handle
+            hasAnyTag(tags: ["volume_discount"])
             metafield (namespace: "volume-discount", key:"quantity-based") {
               jsonValue
             }
