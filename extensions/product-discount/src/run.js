@@ -21,11 +21,11 @@ const EMPTY_DISCOUNT = {
  * @param {RunInput} input
  * @returns {FunctionRunResult}
  */
-export function run(input) {
-  // Filter cart lines where the product has a metafield and fullfilled the min quantity
+export function run(input) {  
+  // Filter cart lines where the product has a metafield and a product tag
   const eligibleLines = input.cart.lines.filter(
-    (line) => line.merchandise.product.hasAnyTag != false && line.merchandise.product.metafield != null
-  ).filter((line) => line.quantity >= line.merchandise.product.metafield.jsonValue.quantity);
+    (line) => line.merchandise.product.hasAnyTag !== false && line.merchandise.product.metafield != null
+  );
 
   if (!eligibleLines.length) {
     console.error("No cart lines qualify for volume discount.");
@@ -34,11 +34,21 @@ export function run(input) {
 
   // Generate discount objects
   const discounts = eligibleLines.map((line) => {
-    const discountValue = line.merchandise.product.metafield.jsonValue?.discount;
-    
-    if (!discountValue || isNaN(discountValue)) {
-      console.warn(`Invalid discount value for product ${line.merchandise.product.id}`);
+    const tiers = line.merchandise.product.metafield.jsonValue;
+
+    if (!Array.isArray(tiers) || tiers.length === 0) {
+      console.warn(`Invalid discount tiers for product ${line.merchandise.product.id}`);
       return null; // Skip invalid entries
+    }
+
+    // Find the highest applicable discount tier
+    const applicableTier = tiers
+      .filter(tier => line.quantity >= tier.quantity)
+      .sort((a, b) => b.quantity - a.quantity)[0];
+
+    if (!applicableTier || isNaN(applicableTier.discount)) {
+      console.warn(`No applicable discount for product ${line.merchandise.product.id}`);
+      return null; // Skip if no valid tier is found
     }
 
     return {
@@ -51,10 +61,10 @@ export function run(input) {
       ],
       value: {
         percentage: {
-          value: discountValue.toString(), // Ensure it's a string
+          value: applicableTier.discount.toString(), // Ensure it's a string
         },
       },
-      message: line.merchandise.product.metafield.jsonValue?.message
+      message: applicableTier.message,
     };
   }).filter(Boolean); // Remove null values
 
