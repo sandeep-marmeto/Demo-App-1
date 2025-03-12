@@ -1,7 +1,6 @@
 // @ts-check
 import { DiscountApplicationStrategy } from "../generated/api";
 
-// Use JSDoc annotations for type safety
 /**
  * @typedef {import("../generated/api").RunInput} RunInput
  * @typedef {import("../generated/api").FunctionRunResult} FunctionRunResult
@@ -13,7 +12,7 @@ import { DiscountApplicationStrategy } from "../generated/api";
  * @type {FunctionRunResult}
  */
 const EMPTY_DISCOUNT = {
-  discountApplicationStrategy: DiscountApplicationStrategy.First,
+  discountApplicationStrategy: DiscountApplicationStrategy.All, // Apply all valid discounts
   discounts: [],
 };
 
@@ -21,55 +20,86 @@ const EMPTY_DISCOUNT = {
  * @param {RunInput} input
  * @returns {FunctionRunResult}
  */
-export function run(input) {  
-  // Filter cart lines where the product has a metafield and a product tag
-  const eligibleLines = input.cart.lines.filter(
-    (line) => line.merchandise.product.hasAnyTag !== false && line.merchandise.product.metafield != null
-  );
+export function run(input) {
+  // Validate the input structure
+  if (!input || !input.cart || !Array.isArray(input.cart.lines)) {
+    console.error("Invalid input structure");
+    return EMPTY_DISCOUNT;
+  }
+
+  // Filter cart lines where the product has a metafield and is tagged
+  const eligibleLines = input.cart.lines.filter((line) => {
+    const product = line.merchandise?.product;
+    return product && 
+           Boolean(product.hasAnyTag) && 
+           product.metafield && 
+           product.metafield.jsonValue &&
+           Array.isArray(product.metafield.jsonValue);
+  });
 
   if (!eligibleLines.length) {
     console.error("No cart lines qualify for volume discount.");
     return EMPTY_DISCOUNT;
   }
 
+  console.log(`Eligible products found: ${eligibleLines.length}`);
+
   // Generate discount objects
-  const discounts = eligibleLines.map((line) => {
-    const tiers = line.merchandise.product.metafield.jsonValue;
+  const discounts = [];
+  
+  for (const line of eligibleLines) {
+    try {
+      const product = line.merchandise.product;
+      const tiers = product.metafield.jsonValue;
 
-    if (!Array.isArray(tiers) || tiers.length === 0) {
-      console.warn(`Invalid discount tiers for product ${line.merchandise.product.id}`);
-      return null; // Skip invalid entries
+      if (!Array.isArray(tiers) || tiers.length === 0) {
+        console.warn(`Invalid discount tiers for product ${product.id}`);
+        continue; // Skip invalid entries
+      }
+
+      // Find all applicable tiers first
+      const applicableTiers = [];
+      for (const tier of tiers) {
+        if (
+          tier && 
+          typeof tier === "object" && 
+          tier.quantity && 
+          typeof tier.quantity === "number" &&
+          tier.discount && 
+          typeof tier.discount === "number" &&
+          line.quantity >= tier.quantity
+        ) {
+          applicableTiers.push(tier);
+        }
+      }
+
+      // Sort by discount value (descending) & take the highest
+      if (applicableTiers.length === 0) {
+        console.warn(`No applicable discount for product ${product.id}`);
+        continue;
+      }
+
+      // Sort and get highest discount
+      applicableTiers.sort((a, b) => b.discount - a.discount);
+      const applicableTier = applicableTiers[0];
+
+      console.log(`Applying ${applicableTier.discount}% discount to product ${product.id}`);
+
+      discounts.push({
+        targets: [{ cartLine: { id: line.id } }],
+        value: { percentage: { value: applicableTier.discount.toString() } }, // Ensure it's a string
+        message: applicableTier.message || `Discount applied: ${applicableTier.discount}%`,
+      });
+    } catch (error) {
+      console.error(`Error processing line: ${error.message}`);
+      // Continue processing other lines even if one fails
     }
+  }
 
-    // Find the highest applicable discount tier
-    const applicableTier = tiers
-      .filter(tier => line.quantity >= tier.quantity)
-      .sort((a, b) => b.quantity - a.quantity)[0];
-
-    if (!applicableTier || isNaN(applicableTier.discount)) {
-      console.warn(`No applicable discount for product ${line.merchandise.product.id}`);
-      return null; // Skip if no valid tier is found
-    }
-
-    return {
-      targets: [
-        {
-          cartLine: {
-            id: line.id,
-          },
-        },
-      ],
-      value: {
-        percentage: {
-          value: applicableTier.discount.toString(), // Ensure it's a string
-        },
-      },
-      message: applicableTier.message,
-    };
-  }).filter(Boolean); // Remove null values
+  console.log(`Total discounts being applied: ${discounts.length}`);
 
   return {
     discounts,
-    discountApplicationStrategy: DiscountApplicationStrategy.All,
+    discountApplicationStrategy: DiscountApplicationStrategy.All, // Apply all discounts
   };
 }
